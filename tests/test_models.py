@@ -291,7 +291,9 @@ Content.
         lola_skills.mkdir()
         lola_skill = lola_skills / "lola-module-skill"
         lola_skill.mkdir()
-        (lola_skill / "SKILL.md").write_text("---\ndescription: lola-module skill\n---\n")
+        (lola_skill / "SKILL.md").write_text(
+            "---\ndescription: lola-module skill\n---\n"
+        )
 
         # Create module/ subdirectory with different skill (should win)
         module_content = module_dir / "module"
