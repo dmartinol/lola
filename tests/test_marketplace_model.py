@@ -41,6 +41,19 @@ class TestMarketplaceFromReference:
         assert marketplace.url == expected["url"]
         assert marketplace.enabled == expected["enabled"]
 
+    @pytest.mark.parametrize(
+        "yaml_content",
+        ["", "null", "   \n  "],
+    )
+    def test_from_reference_empty_or_null_does_not_crash(self, tmp_path, yaml_content):
+        """from_reference handles empty, whitespace-only, or null files without crashing."""
+        ref_file = tmp_path / "empty.yml"
+        ref_file.write_text(yaml_content)
+        marketplace = Marketplace.from_reference(ref_file)
+        assert marketplace.name == ""
+        assert marketplace.url == ""
+        assert marketplace.enabled is True
+
 
 class TestMarketplaceFromCache:
     """Tests for Marketplace.from_cache()."""
@@ -66,6 +79,21 @@ class TestMarketplaceFromCache:
         assert marketplace.version == "1.0.0"
         assert len(marketplace.modules) == 1
         assert marketplace.modules[0]["name"] == "git-tools"
+
+    @pytest.mark.parametrize(
+        "yaml_content",
+        ["", "null", "   \n  "],
+    )
+    def test_from_cache_empty_or_null_does_not_crash(self, tmp_path, yaml_content):
+        """from_cache handles empty, whitespace-only, or null files without crashing."""
+        cache_file = tmp_path / "empty.yml"
+        cache_file.write_text(yaml_content)
+        marketplace = Marketplace.from_cache(cache_file)
+        assert marketplace.name == ""
+        assert marketplace.url == ""
+        assert marketplace.description == ""
+        assert marketplace.version == ""
+        assert marketplace.modules == []
 
 
 class TestMarketplaceFromUrl:
@@ -140,6 +168,34 @@ class TestMarketplaceFromUrl:
         missing = tmp_path / "missing" / "market.yml"
         with pytest.raises(ValueError, match="Marketplace file not found"):
             Marketplace.from_url(str(missing), "test")
+
+    @pytest.mark.parametrize(
+        "yaml_content",
+        ["", "null", "   \n  "],
+    )
+    def test_from_url_local_empty_or_null_does_not_crash(self, tmp_path, yaml_content):
+        """from_url (local file) handles empty, whitespace-only, or null without crashing."""
+        market_file = tmp_path / "empty.yml"
+        market_file.write_text(yaml_content)
+        marketplace = Marketplace.from_url(str(market_file), "test")
+        assert marketplace.name == "test"
+        assert marketplace.description == ""
+        assert marketplace.version == ""
+        assert marketplace.modules == []
+
+    def test_from_url_http_empty_or_null_does_not_crash(self):
+        """from_url (HTTP) handles empty, whitespace-only, or null response without crashing."""
+        for content in (b"", b"null", b"   \n  "):
+            mock_response = mock_open(read_data=content)()
+
+            with patch("urllib.request.urlopen", return_value=mock_response):
+                marketplace = Marketplace.from_url(
+                    "https://example.com/empty.yml", "test"
+                )
+            assert marketplace.name == "test"
+            assert marketplace.description == ""
+            assert marketplace.version == ""
+            assert marketplace.modules == []
 
 
 class TestMarketplaceValidate:

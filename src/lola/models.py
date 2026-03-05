@@ -431,7 +431,7 @@ class Marketplace:
     def from_reference(cls, ref_file: Path) -> "Marketplace":
         """Load marketplace from reference file."""
         with open(ref_file) as f:
-            data = yaml.safe_load(f)
+            data = yaml.safe_load(f) or {}
         return cls(
             name=data.get("name", ""),
             url=data.get("url", ""),
@@ -442,7 +442,7 @@ class Marketplace:
     def from_cache(cls, cache_file: Path) -> "Marketplace":
         """Load marketplace from cache file."""
         with open(cache_file) as f:
-            data = yaml.safe_load(f)
+            data = yaml.safe_load(f) or {}
         return cls(
             name=data.get("name", ""),
             url=data.get("url", ""),
@@ -466,7 +466,7 @@ class Marketplace:
         if parsed.scheme in ("http", "https"):
             try:
                 with urlopen(url, timeout=10) as response:  # nosec B310 - scheme validated above
-                    data = yaml.safe_load(response.read())
+                    data = yaml.safe_load(response.read()) or {}
             except URLError as e:
                 raise ValueError(f"Failed to download marketplace: {e}")
         elif parsed.scheme == "file" or parsed.scheme == "":
@@ -478,7 +478,7 @@ class Marketplace:
                 raise ValueError(f"Marketplace file not found: {file_path}")
             try:
                 with open(file_path) as f:
-                    data = yaml.safe_load(f)
+                    data = yaml.safe_load(f) or {}
             except OSError as e:
                 raise ValueError(f"Failed to read marketplace file: {e}")
             stored_url = file_path.as_uri()
