@@ -7,14 +7,13 @@ Commands for installing, uninstalling, updating, and listing module installation
 from dataclasses import dataclass, field
 import shutil
 from pathlib import Path
-from typing import NoReturn, Optional
+from typing import Optional
 
 import click
 from rich.console import Console
 
 from lola.config import MODULES_DIR, MARKET_DIR, CACHE_DIR
 from lola.exceptions import (
-    LolaError,
     ModuleInvalidError,
     ModuleNotFoundError,
     PathNotFoundError,
@@ -23,7 +22,17 @@ from lola.exceptions import (
 from lola.models import Installation, InstallationRegistry, Module
 from lola.market.manager import parse_market_ref, MarketplaceRegistry
 from lola.parsers import fetch_module, detect_source_type
-from lola.cli.mod import save_source_info, load_registered_module
+from lola.cli.mod import (
+    save_source_info,
+    load_registered_module,
+    list_registered_modules,
+)
+from lola.prompts import (
+    is_interactive,
+    select_assistants,
+    select_installations,
+    select_module,
+)
 from lola.targets import (
     AssistantTarget,
     TARGETS,
@@ -36,6 +45,7 @@ from lola.targets import (
     install_to_assistant,
 )
 from lola.utils import ensure_lola_dirs, get_local_modules_path
+from lola.cli.utils import handle_lola_error
 
 console = Console()
 
@@ -109,12 +119,6 @@ def _fetch_from_marketplace(
     except Exception as e:
         console.print(f"[red]Failed to fetch module: {e}[/red]")
         raise SystemExit(1)
-
-
-def _handle_lola_error(e: LolaError) -> NoReturn:
-    """Handle a LolaError by printing an error message and exiting."""
-    console.print(f"[red]{e}[/red]")
-    raise SystemExit(1)
 
 
 # =============================================================================
@@ -215,7 +219,7 @@ def _build_update_context(
     current_skills = set(global_module.skills)
     current_commands = set(global_module.commands)
     current_agents = set(global_module.agents)
-    current_mcps = {f"{inst.module_name}-{m}" for m in global_module.mcps}
+    current_mcps = set(global_module.mcps)
 
     # Find orphaned items (in registry but not in module)
     orphaned_skills = set(inst.skills) - current_skills
@@ -267,7 +271,7 @@ def _remove_orphaned_commands(ctx: UpdateContext, verbose: bool) -> int:
             removed += 1
             if verbose:
                 console.print(
-                    f"      [yellow]- /{ctx.inst.module_name}.{cmd_name}[/yellow] [dim](orphaned)[/dim]"
+                    f"      [yellow]- /{cmd_name}[/yellow] [dim](orphaned)[/dim]"
                 )
     return removed
 
@@ -287,7 +291,7 @@ def _remove_orphaned_agents(ctx: UpdateContext, verbose: bool) -> int:
             removed += 1
             if verbose:
                 console.print(
-                    f"      [yellow]- @{ctx.inst.module_name}.{agent_name}[/yellow] [dim](orphaned)[/dim]"
+                    f"      [yellow]- @{agent_name}[/yellow] [dim](orphaned)[/dim]"
                 )
     return removed
 
@@ -301,10 +305,7 @@ def _remove_orphaned_mcps(ctx: UpdateContext, verbose: bool) -> int:
     if not mcp_dest:
         return 0
 
-    # For MCPs, we need to remove individual servers from the config file
-    # The orphaned MCPs are prefixed names, so we pass the module name
-    # and let remove_mcps handle it
-    if ctx.target.remove_mcps(mcp_dest, ctx.inst.module_name):
+    if ctx.target.remove_mcps(mcp_dest, ctx.inst.module_name, list(ctx.orphaned_mcps)):
         if verbose:
             for mcp_name in ctx.orphaned_mcps:
                 console.print(
@@ -434,9 +435,7 @@ def _update_commands(ctx: UpdateContext, verbose: bool) -> tuple[int, int]:
         if success:
             commands_ok += 1
             if verbose:
-                console.print(
-                    f"      [green]/{ctx.inst.module_name}.{cmd_name}[/green]"
-                )
+                console.print(f"      [green]/{cmd_name}[/green]")
         else:
             commands_failed += 1
             if verbose:
@@ -474,9 +473,7 @@ def _update_agents(ctx: UpdateContext, verbose: bool) -> tuple[int, int]:
         if success:
             agents_ok += 1
             if verbose:
-                console.print(
-                    f"      [green]@{ctx.inst.module_name}.{agent_name}[/green]"
-                )
+                console.print(f"      [green]@{agent_name}[/green]")
         else:
             agents_failed += 1
             if verbose:
@@ -554,9 +551,7 @@ def _update_mcps(ctx: UpdateContext, verbose: bool) -> tuple[int, int]:
     if ctx.target.generate_mcps(servers, mcp_dest, ctx.inst.module_name):
         if verbose:
             for mcp_name in servers.keys():
-                console.print(
-                    f"      [green]mcp:{ctx.inst.module_name}-{mcp_name}[/green]"
-                )
+                console.print(f"      [green]mcp:{mcp_name}[/green]")
         return len(servers), 0
 
     return 0, len(ctx.global_module.mcps)
@@ -638,13 +633,13 @@ def _format_update_summary(result: UpdateResult) -> str:
 
 
 @click.command(name="install")
-@click.argument("module_name")
+@click.argument("module_name", required=False, default=None)
 @click.option(
     "-a",
     "--assistant",
     type=click.Choice(list(TARGETS.keys())),
     default=None,
-    help="AI assistant to install skills for (default: all)",
+    help="AI assistant to install skills for (default: prompt interactively, or all in non-interactive mode)",
 )
 @click.option(
     "-v",
@@ -672,7 +667,7 @@ def _format_update_summary(result: UpdateResult) -> str:
 )
 @click.argument("project_path", required=False, default="./")
 def install_cmd(
-    module_name: str,
+    module_name: Optional[str],
     assistant: Optional[str],
     verbose: bool,
     force: bool,
@@ -683,22 +678,42 @@ def install_cmd(
     """
     Install a module's skills to AI assistants.
 
-    If no assistant is specified, installs to all assistants.
-    If no project path is specified, installs to the current directory.
+    MODULE_NAME is optional when running interactively — omit it to pick
+    from registered modules via an interactive prompt.  If no assistant is
+    specified, you are prompted to choose one (or all in non-interactive mode).
 
     \b
     Examples:
-        lola install my-module                         # All assistants in the current directory
-        lola install my-module -a claude-code          # Specific assistant in the current directory
+        lola install                                   # Pick module and assistants interactively
+        lola install my-module                         # Pick assistants interactively
+        lola install my-module -a claude-code          # Specific assistant, no prompt
         lola install my-module ./my-project            # Install in a specific project directory
     """
     ensure_lola_dirs()
+
+    # Resolve module_name interactively when omitted
+    if module_name is None:
+        if not is_interactive():
+            console.print("[red]module_name is required in non-interactive mode[/red]")
+            console.print("[dim]Usage: lola install <module> [-a <assistant>][/dim]")
+            raise SystemExit(1)
+        registered = list_registered_modules()
+        names = [m.name for m in registered]
+        if not names:
+            console.print(
+                "[yellow]No modules registered. Use 'lola mod add' first.[/yellow]"
+            )
+            return
+        module_name = select_module(names)
+        if not module_name:
+            console.print("[yellow]Cancelled[/yellow]")
+            raise SystemExit(130)
 
     # Validate project path
     scope = "project"
     project_path = str(Path(project_path).resolve())
     if not Path(project_path).exists():
-        _handle_lola_error(PathNotFoundError(project_path, "Project path"))
+        handle_lola_error(PathNotFoundError(project_path, "Project path"))
 
     # Default to global registry
     module_path = MODULES_DIR / module_name
@@ -723,11 +738,13 @@ def install_cmd(
 
         if matches:
             selected_marketplace = mp_registry.select_marketplace(module_name, matches)
-            if selected_marketplace:
-                module_path, module_dict = _fetch_from_marketplace(
-                    selected_marketplace, module_name
-                )
-                marketplace_hooks = module_dict.get("hooks", {})
+            if selected_marketplace is None:
+                console.print("[yellow]Cancelled[/yellow]")
+                raise SystemExit(130)
+            module_path, module_dict = _fetch_from_marketplace(
+                selected_marketplace, module_name
+            )
+            marketplace_hooks = module_dict.get("hooks", {})
 
     # Verify module exists
     if not module_path.exists():
@@ -736,21 +753,21 @@ def install_cmd(
         console.print(
             "[dim]Or install from marketplace: lola install @marketplace/module[/dim]"
         )
-        _handle_lola_error(ModuleNotFoundError(module_name))
+        handle_lola_error(ModuleNotFoundError(module_name))
 
     module = load_registered_module(module_path)
     if not module:
         console.print(
             "[dim]Expected structure: skills/<name>/SKILL.md, commands/*.md, or agents/*.md[/dim]"
         )
-        _handle_lola_error(ModuleInvalidError(module_name))
+        handle_lola_error(ModuleInvalidError(module_name))
     assert module is not None  # nosec B101 - type narrowing after NoReturn, not a runtime guard
 
     # Validate module structure and skill files
     try:
         module.validate_or_raise()
     except ValidationError as e:
-        _handle_lola_error(e)
+        handle_lola_error(e)
 
     if (
         not module.skills
@@ -769,7 +786,17 @@ def install_cmd(
     registry = get_registry()
 
     # Determine which assistants to install to
-    assistants_to_install = [assistant] if assistant else list(TARGETS.keys())
+    if assistant:
+        assistants_to_install = [assistant]
+    elif is_interactive():
+        chosen = select_assistants(list(TARGETS.keys()))
+        if not chosen:
+            console.print("[yellow]No assistants selected. Cancelled.[/yellow]")
+            raise SystemExit(130)
+        assistants_to_install = chosen
+    else:
+        # Non-interactive: preserve original default (all assistants)
+        assistants_to_install = list(TARGETS.keys())
 
     # Resolve hooks with precedence: CLI flags > module lola.yaml > marketplace
     effective_pre_install = (
@@ -806,7 +833,7 @@ def install_cmd(
 
 
 @click.command(name="uninstall")
-@click.argument("module_name")
+@click.argument("module_name", required=False, default=None)
 @click.option(
     "-a",
     "--assistant",
@@ -822,7 +849,7 @@ def install_cmd(
     "-f", "--force", is_flag=True, help="Force uninstall without confirmation"
 )
 def uninstall_cmd(
-    module_name: str,
+    module_name: Optional[str],
     assistant: Optional[str],
     verbose: bool,
     project_path: Optional[str],
@@ -834,13 +861,32 @@ def uninstall_cmd(
     Removes generated skill files but keeps the module in the registry.
     Use 'lola mod rm' to fully remove a module.
 
+    When module_name is omitted in an interactive terminal, a picker is shown
+    listing all installed modules. Cancelling the picker exits with code 130.
+
     \b
     Examples:
         lola uninstall my-module
         lola uninstall my-module -a claude-code
         lola uninstall my-module -a cursor ./my-project
+        lola uninstall                          # interactive picker
     """
     ensure_lola_dirs()
+
+    # Resolve module_name interactively when omitted
+    if module_name is None:
+        if not is_interactive():
+            console.print("[red]module_name is required in non-interactive mode[/red]")
+            raise SystemExit(1)
+        registry = get_registry()
+        installed_names = sorted({inst.module_name for inst in registry.all()})
+        if not installed_names:
+            console.print("[yellow]No modules installed.[/yellow]")
+            return
+        module_name = select_module(installed_names)
+        if not module_name:
+            console.print("[yellow]Cancelled[/yellow]")
+            raise SystemExit(130)
 
     registry = get_registry()
     installations = registry.find(module_name)
@@ -900,14 +946,32 @@ def uninstall_cmd(
 
     # Confirm if multiple installations and not forced
     if len(installations) > 1 and not force:
-        console.print("[yellow]Multiple installations found[/yellow]")
-        console.print("[dim]Use -a <assistant> to target specific installation[/dim]")
-        console.print("[dim]Use -f/--force to uninstall all[/dim]")
-        console.print()
-
-        if not click.confirm("Uninstall all?"):
-            console.print("[yellow]Cancelled[/yellow]")
-            return
+        if is_interactive():
+            choices = []
+            for inst in installations:
+                project_label = inst.project_path or "~/.lola (user scope)"
+                label = f"{project_label} ({inst.assistant})"
+                choices.append((inst.project_path or "", inst.assistant, label))
+            selected = select_installations(choices)
+            if not selected:
+                console.print("[yellow]Cancelled[/yellow]")
+                return
+            selected_keys = {(p, a) for p, a, _ in selected}
+            installations = [
+                i
+                for i in installations
+                if ((i.project_path or ""), i.assistant) in selected_keys
+            ]
+        else:
+            console.print("[yellow]Multiple installations found[/yellow]")
+            console.print(
+                "[dim]Use -a <assistant> to target specific installation[/dim]"
+            )
+            console.print("[dim]Use -f/--force to uninstall all[/dim]")
+            console.print()
+            if not click.confirm("Uninstall all?"):
+                console.print("[yellow]Cancelled[/yellow]")
+                return
 
     # Uninstall each
     removed_count = 0
@@ -989,7 +1053,7 @@ def uninstall_cmd(
         # Remove MCP servers
         if inst.mcps:
             mcp_dest = target.get_mcp_path(inst.project_path)
-            if mcp_dest and target.remove_mcps(mcp_dest, module_name):
+            if mcp_dest and target.remove_mcps(mcp_dest, module_name, list(inst.mcps)):
                 removed_count += len(inst.mcps)
                 if verbose:
                     console.print(f"  [green]Removed MCPs from {mcp_dest}[/green]")

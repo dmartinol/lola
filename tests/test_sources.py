@@ -701,6 +701,44 @@ class TestDownloadFile:
             with pytest.raises(RuntimeError, match="Download error"):
                 download_file("https://example.com/file.txt", dest_path)
 
+    def test_download_rejects_invalid_scheme(self, tmp_path):
+        """Reject URLs with non-http/https schemes."""
+        dest_path = tmp_path / "downloaded.txt"
+
+        # Test various invalid schemes
+        invalid_urls = [
+            "file:///etc/passwd",
+            "ftp://example.com/file.txt",
+            "data:text/plain,hello",
+            "javascript:alert(1)",
+            "",  # Empty scheme
+        ]
+
+        for url in invalid_urls:
+            with pytest.raises(ValueError, match="must use http or https"):
+                download_file(url, dest_path)
+
+    def test_download_accepts_valid_schemes(self, tmp_path):
+        """Accept http and https URLs."""
+        dest_path = tmp_path / "downloaded.txt"
+
+        with patch("lola.parsers.urlopen") as mock_urlopen:
+            # Create separate mocks for each call
+            def create_mock_response():
+                mock_response = MagicMock()
+                mock_response.__enter__ = MagicMock(return_value=mock_response)
+                mock_response.__exit__ = MagicMock(return_value=False)
+                mock_response.read.side_effect = [b"test", b""]
+                return mock_response
+
+            mock_urlopen.side_effect = [create_mock_response(), create_mock_response()]
+
+            # Both http and https should work
+            download_file("http://example.com/file.txt", dest_path)
+            download_file("https://example.com/file.txt", dest_path)
+
+            assert mock_urlopen.call_count == 2
+
 
 class TestGitSourceHandlerFetch:
     """Tests for GitSourceHandler.fetch()."""
@@ -782,6 +820,35 @@ class TestGitSourceHandlerFetch:
 
         # Old file should be gone (directory was removed before clone)
         assert not (dest_dir / "repo" / "old_file.txt").exists()
+
+    def test_fetch_prevents_flag_injection(self, tmp_path):
+        """Verify git clone uses -- separator to prevent flag injection."""
+        dest_dir = tmp_path / "dest"
+        dest_dir.mkdir()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stderr="")
+
+            # Mock directory creation
+            repo_dir = dest_dir / "repo"
+            repo_dir.mkdir()
+            (repo_dir / ".git").mkdir()
+
+            # Try to inject a git flag as the source URL
+            malicious_source = "--upload-pack=/tmp/evil"
+            self.handler.fetch(malicious_source, dest_dir)
+
+            # Verify the command structure includes the -- separator
+            call_args = mock_run.call_args[0][0]
+            assert call_args == [
+                "git",
+                "clone",
+                "--depth",
+                "1",
+                "--",
+                malicious_source,
+                str(dest_dir / "evil"),  # Name derived from source
+            ], "Git clone must use -- separator to prevent flag injection"
 
 
 class TestZipSlipPrevention:
