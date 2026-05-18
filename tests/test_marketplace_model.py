@@ -198,6 +198,175 @@ class TestMarketplaceFromUrl:
             assert marketplace.modules == []
 
 
+class TestMarketplaceFromGitUrl:
+    """Tests for Marketplace.from_url() with git+ prefix."""
+
+    YAML_CONTENT = (
+        "name: Git Marketplace\n"
+        "description: Self-hosted catalog\n"
+        "version: 1.0.0\n"
+        "modules:\n"
+        "  - name: internal-module\n"
+        "    description: An internal module\n"
+        "    version: 1.0.0\n"
+        "    repository: https://gitlab.internal/org/module.git\n"
+    )
+
+    def _mock_git_clone(self, yaml_content, filename="my-market.yml"):
+        """Return a side_effect for subprocess.run that writes YAML to the clone dir."""
+        def side_effect(cmd, **kwargs):
+            # cmd is: ["git", "clone", "--depth", "1", "--", url, repo_dir]
+            repo_dir = cmd[-1]
+            from pathlib import Path
+            Path(repo_dir).mkdir(parents=True, exist_ok=True)
+            target = Path(repo_dir) / filename
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(yaml_content)
+            from unittest.mock import MagicMock
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            return result
+        return side_effect
+
+    def test_from_git_url_https(self):
+        """Fetch marketplace from git+https:// URL."""
+        with patch("subprocess.run", side_effect=self._mock_git_clone(self.YAML_CONTENT)):
+            marketplace = Marketplace.from_url(
+                "git+https://gitlab.internal/org/marketplace.git", "my-market"
+            )
+        assert marketplace.name == "my-market"
+        assert marketplace.url == "git+https://gitlab.internal/org/marketplace.git"
+        assert marketplace.description == "Self-hosted catalog"
+        assert marketplace.version == "1.0.0"
+        assert len(marketplace.modules) == 1
+        assert marketplace.modules[0]["name"] == "internal-module"
+
+    def test_from_git_url_ssh(self):
+        """Fetch marketplace from git+ssh:// URL."""
+        with patch("subprocess.run", side_effect=self._mock_git_clone(self.YAML_CONTENT)):
+            marketplace = Marketplace.from_url(
+                "git+ssh://git@gitlab.internal/org/marketplace.git", "my-market"
+            )
+        assert marketplace.name == "my-market"
+        assert marketplace.url == "git+ssh://git@gitlab.internal/org/marketplace.git"
+        assert marketplace.description == "Self-hosted catalog"
+
+    def test_from_git_url_with_fragment(self):
+        """Use fragment to specify YAML file path in the repo."""
+        with patch(
+            "subprocess.run",
+            side_effect=self._mock_git_clone(self.YAML_CONTENT, "catalogs/market.yml"),
+        ):
+            marketplace = Marketplace.from_url(
+                "git+https://gitlab.internal/org/repo.git#catalogs/market.yml",
+                "my-market",
+            )
+        assert marketplace.name == "my-market"
+        assert marketplace.description == "Self-hosted catalog"
+
+    def test_from_git_url_clone_failure(self):
+        """Raise ValueError when git clone fails."""
+        def fail_clone(cmd, **kwargs):
+            from unittest.mock import MagicMock
+            result = MagicMock()
+            result.returncode = 128
+            result.stderr = "fatal: repository not found"
+            return result
+
+        with patch("subprocess.run", side_effect=fail_clone):
+            with pytest.raises(ValueError, match="Failed to clone marketplace repository"):
+                Marketplace.from_url(
+                    "git+https://gitlab.internal/org/missing.git", "test"
+                )
+
+    def test_from_git_url_file_not_found_in_repo(self):
+        """Raise ValueError when fragment points to missing file."""
+        def clone_empty(cmd, **kwargs):
+            from pathlib import Path
+            repo_dir = cmd[-1]
+            Path(repo_dir).mkdir(parents=True, exist_ok=True)
+            from unittest.mock import MagicMock
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            return result
+
+        with patch("subprocess.run", side_effect=clone_empty):
+            with pytest.raises(ValueError, match="not found in repository"):
+                Marketplace.from_url(
+                    "git+https://gitlab.internal/org/repo.git#missing.yml", "test"
+                )
+
+    def test_from_git_url_no_yaml_in_repo(self):
+        """Raise ValueError when repo has no YAML files."""
+        def clone_no_yaml(cmd, **kwargs):
+            from pathlib import Path
+            repo_dir = cmd[-1]
+            Path(repo_dir).mkdir(parents=True, exist_ok=True)
+            (Path(repo_dir) / "README.md").write_text("# Hello")
+            from unittest.mock import MagicMock
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            return result
+
+        with patch("subprocess.run", side_effect=clone_no_yaml):
+            with pytest.raises(ValueError, match="No YAML files found"):
+                Marketplace.from_url(
+                    "git+https://gitlab.internal/org/repo.git", "test"
+                )
+
+    def test_from_git_url_multiple_yaml_ambiguous(self):
+        """Raise ValueError when multiple YAML files found and name doesn't match."""
+        def clone_multi_yaml(cmd, **kwargs):
+            from pathlib import Path
+            repo_dir = cmd[-1]
+            Path(repo_dir).mkdir(parents=True, exist_ok=True)
+            (Path(repo_dir) / "one.yml").write_text("name: one\n")
+            (Path(repo_dir) / "two.yml").write_text("name: two\n")
+            from unittest.mock import MagicMock
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            return result
+
+        with patch("subprocess.run", side_effect=clone_multi_yaml):
+            with pytest.raises(ValueError, match="Multiple YAML files found"):
+                Marketplace.from_url(
+                    "git+https://gitlab.internal/org/repo.git", "test"
+                )
+
+    def test_from_git_url_fragment_traversal_blocked(self):
+        """Block path traversal in fragment."""
+        def clone_with_content(cmd, **kwargs):
+            from pathlib import Path
+            repo_dir = cmd[-1]
+            Path(repo_dir).mkdir(parents=True, exist_ok=True)
+            (Path(repo_dir) / "market.yml").write_text("name: test\n")
+            from unittest.mock import MagicMock
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            return result
+
+        with patch("subprocess.run", side_effect=clone_with_content):
+            with pytest.raises(ValueError, match="Path traversal detected"):
+                Marketplace.from_url(
+                    "git+https://gitlab.internal/org/repo.git#../../etc/passwd",
+                    "test",
+                )
+
+    def test_from_git_url_stored_for_updates(self):
+        """The git+ URL is preserved so market update can re-clone."""
+        with patch("subprocess.run", side_effect=self._mock_git_clone(self.YAML_CONTENT)):
+            marketplace = Marketplace.from_url(
+                "git+https://gitlab.internal/org/marketplace.git", "my-market"
+            )
+        # The stored URL keeps the git+ prefix for future from_url calls
+        assert marketplace.url.startswith("git+")
+
+
 class TestMarketplaceValidate:
     """Tests for Marketplace.validate()."""
 

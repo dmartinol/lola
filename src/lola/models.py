@@ -454,11 +454,18 @@ class Marketplace:
 
     @classmethod
     def from_url(cls, url: str, name: str) -> "Marketplace":
-        """Load marketplace from URL (http/https) or local file path."""
+        """Load marketplace from URL (http/https), git repo (git+https/git+ssh), or local file path."""
         from urllib.request import urlopen
         from urllib.error import URLError
 
         from urllib.parse import urlparse
+
+        # Git-based fetch: git+https:// or git+ssh://
+        # Uses git clone to leverage existing credentials (SSH keys, credential
+        # helpers, .netrc) — required for self-hosted GitLab/GitHub instances
+        # that don't allow unauthenticated HTTP access.
+        if url.startswith("git+"):
+            return cls._from_git_url(url, name)
 
         parsed = urlparse(url)
         stored_url = url
@@ -484,7 +491,8 @@ class Marketplace:
             stored_url = file_path.as_uri()
         else:
             raise ValueError(
-                f"Marketplace URL must use http(s) or file/local path, got: {parsed.scheme!r}"
+                f"Marketplace URL must use http(s), git+https, git+ssh, "
+                f"or file/local path, got: {parsed.scheme!r}"
             )
 
         return cls(
@@ -495,6 +503,117 @@ class Marketplace:
             version=data.get("version", ""),
             modules=data.get("modules", []),
         )
+
+    @classmethod
+    def _from_git_url(cls, url: str, name: str) -> "Marketplace":
+        """Fetch marketplace YAML from a git repository.
+
+        Supports URLs like:
+            git+https://gitlab.internal/org/marketplace.git
+            git+ssh://git@gitlab.internal/org/marketplace.git
+            git+https://gitlab.internal/org/marketplace.git#path/to/market.yml
+
+        The optional fragment (#path/to/file.yml) specifies which file in the
+        repo contains the marketplace catalog. Without it, auto-detection is
+        used (see _find_marketplace_yaml).
+        """
+        import shutil
+        import subprocess  # nosec B404 - required for git clone
+        from urllib.parse import urlparse, urlunparse
+
+        # Strip "git+" prefix: git+https://... → https://...
+        git_url = url[4:]
+
+        # Extract optional fragment for file path within the repo
+        parsed = urlparse(git_url)
+        file_fragment = parsed.fragment or None
+        git_url_clean = urlunparse(parsed._replace(fragment=""))
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            repo_dir = Path(tmp_dir) / "repo"
+            clone_cmd = [
+                "git", "clone", "--depth", "1",
+                "--", git_url_clean, str(repo_dir),
+            ]
+            result = subprocess.run(  # nosec B603 B607 - list args (no shell), git from PATH
+                clone_cmd,
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                raise ValueError(
+                    f"Failed to clone marketplace repository: {result.stderr.strip()}"
+                )
+
+            # Locate the YAML file
+            if file_fragment:
+                yaml_file = (repo_dir / file_fragment).resolve()
+                # Guard against path traversal via fragment
+                if not str(yaml_file).startswith(str(repo_dir.resolve()) + os.sep) and yaml_file != repo_dir.resolve():
+                    raise ValueError(
+                        f"Path traversal detected in fragment: {file_fragment}"
+                    )
+                if not yaml_file.exists():
+                    raise ValueError(
+                        f"File '{file_fragment}' not found in repository"
+                    )
+            else:
+                yaml_file = cls._find_marketplace_yaml(repo_dir, name)
+
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f) or {}
+
+            # Clean up .git before the temp dir context manager does it,
+            # to avoid issues with read-only git objects on some platforms.
+            git_dir = repo_dir / ".git"
+            if git_dir.exists():
+                shutil.rmtree(git_dir, ignore_errors=True)
+
+        return cls(
+            name=name,
+            url=url,  # Store the original git+ URL for future updates
+            enabled=True,
+            description=data.get("description", ""),
+            version=data.get("version", ""),
+            modules=data.get("modules", []),
+        )
+
+    @staticmethod
+    def _find_marketplace_yaml(repo_path: Path, name: str) -> Path:
+        """Find marketplace YAML file in a cloned repository.
+
+        Search order:
+        1. <name>.yml / <name>.yaml (matches the marketplace name)
+        2. marketplace.yml / marketplace.yaml (common convention)
+        3. Single .yml/.yaml file at repo root (unambiguous auto-detect)
+        """
+        # Try name-specific file first
+        for ext in (".yml", ".yaml"):
+            named_file = repo_path / f"{name}{ext}"
+            if named_file.exists():
+                return named_file
+
+        # Try common conventional names
+        for common_name in ("marketplace.yml", "marketplace.yaml"):
+            common_file = repo_path / common_name
+            if common_file.exists():
+                return common_file
+
+        # Auto-detect: single YAML file at repo root
+        yml_files = [
+            f for f in (*repo_path.glob("*.yml"), *repo_path.glob("*.yaml"))
+            if f.name not in (".pre-commit-config.yaml",)
+        ]
+        if len(yml_files) == 1:
+            return yml_files[0]
+        elif len(yml_files) == 0:
+            raise ValueError("No YAML files found in repository root")
+        else:
+            file_list = ", ".join(sorted(f.name for f in yml_files))
+            raise ValueError(
+                f"Multiple YAML files found in repository root: {file_list}. "
+                f"Specify the file with a fragment: git+<url>#filename.yml"
+            )
 
     def validate(self) -> tuple[bool, list[str]]:
         """Validate marketplace structure."""
