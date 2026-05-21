@@ -534,6 +534,9 @@ class Marketplace:
         import subprocess  # nosec B404 - required for git clone
         from urllib.parse import urlparse, urlunparse
 
+        # Prevent git from prompting for credentials interactively
+        git_env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+
         # Strip "git+" prefix if present: git+https://... → https://...
         # SCP-style URLs (git@host:path) are passed through as-is.
         if url.startswith("git+"):
@@ -563,6 +566,8 @@ class Marketplace:
                 clone_cmd,
                 capture_output=True,
                 text=True,
+                timeout=60,
+                env=git_env,
             )
             if result.returncode != 0:
                 raise ValueError(
@@ -590,6 +595,8 @@ class Marketplace:
                     sparse_cmd,
                     capture_output=True,
                     text=True,
+                    timeout=30,
+                    env=git_env,
                 )
                 if result.returncode != 0:
                     raise ValueError(
@@ -641,6 +648,7 @@ class Marketplace:
             ls_cmd,
             capture_output=True,
             text=True,
+            timeout=15,
         )
         if result.returncode != 0:
             raise ValueError(
