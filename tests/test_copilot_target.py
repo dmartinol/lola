@@ -62,13 +62,13 @@ def test_copilot_agent_path_user_scope():
 def test_copilot_instructions_path_user_scope():
     target = CopilotTarget()
     path = target.get_instructions_path("/home/user/project", "user")
-    assert path == Path.home() / ".github" / "copilot-instructions.md"
+    assert path == Path.home() / ".copilot" / "copilot-instructions.md"
 
 
 def test_copilot_mcp_path_user_scope():
     target = CopilotTarget()
     path = target.get_mcp_path("/home/user/project", "user")
-    assert path == Path.home() / ".github" / "copilot" / "mcp.json"
+    assert path == Path.home() / ".copilot" / "mcp.json"
 
 
 # --- Default scope tests ---

@@ -45,12 +45,14 @@ class CopilotTarget(MCPSupportMixin, ManagedInstructionsTarget, BaseAssistantTar
         return Path(project_path) / ".github" / "agents"
 
     def get_instructions_path(self, project_path: str, scope: str = "project") -> Path:
-        base = Path.home() if scope == "user" else Path(project_path)
-        return base / ".github" / self.INSTRUCTIONS_FILE
+        if scope == "user":
+            return Path.home() / ".copilot" / self.INSTRUCTIONS_FILE
+        return Path(project_path) / ".github" / self.INSTRUCTIONS_FILE
 
     def get_mcp_path(self, project_path: str, scope: str = "project") -> Path:
-        base = Path.home() if scope == "user" else Path(project_path)
-        return base / ".github" / "copilot" / "mcp.json"
+        if scope == "user":
+            return Path.home() / ".copilot" / "mcp.json"
+        return Path(project_path) / ".github" / "copilot" / "mcp.json"
 
     def generate_skill(
         self,
