@@ -331,7 +331,9 @@ def _install_commands(
     if command_dest is None:
         console.print(
             f"  [yellow]Slash commands are not supported by {target.name} "
-            f"in {scope} scope; skipping.[/yellow]"
+            f"in {scope}-scoped installs; skipping. Please submit an issue or "
+            f"PR if this has changed: "
+            f"https://github.com/LobsterTrap/lola[/yellow]"
         )
         return [], []
 
@@ -491,7 +493,9 @@ def _install_mcps(
     if mcp_dest is None:
         console.print(
             f"  [yellow]MCP servers are not supported by {target.name} "
-            f"in {scope} scope; skipping.[/yellow]"
+            f"in {scope}-scoped installs; skipping. Please submit an issue or "
+            f"PR if this has changed: "
+            f"https://github.com/LobsterTrap/lola[/yellow]"
         )
         return [], []
 
