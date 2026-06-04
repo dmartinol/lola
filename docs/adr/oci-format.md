@@ -362,7 +362,7 @@ skillimage uses a minimalist single-layer design, as documented in their `pkg/oc
 
 Following skillimage's pattern, Lola modules are packaged with a single content layer:
 
-```
+```text
 OCI Image:
 ├── Config (application/vnd.lola.module.config.v1+json)
 │   └── Contains: Layer digests, creation timestamp
@@ -389,7 +389,7 @@ OCI Image:
 
 When unpacked to filesystem (local mode), the structure matches Lola's current format:
 
-```
+```text
 .lola/modules/module-name/
 ├── skills/
 │   ├── skill-name-1/
@@ -407,7 +407,7 @@ When unpacked to filesystem (local mode), the structure matches Lola's current f
 
 **Architecture:**
 
-```
+```text
 lola (Go binary)
   ├── CLI framework (cobra/cli)
   ├── Core commands (mod, install, market)
