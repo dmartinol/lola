@@ -1523,7 +1523,7 @@ Per [ADR 0007](../oci-format.md), the implementation follows these phases:
 **Scope:**
 - Rewrite Lola core in Go
 - Port existing Git/Zip/Tar/marketplace functionality
-- Maintain CLI interface compatibility
+- Maintain CLI compatibility
 - Integrate skillimage library for OCI support
 
 **No New Commands:** This phase focuses on language migration and library integration.

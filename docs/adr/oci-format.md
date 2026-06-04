@@ -442,7 +442,7 @@ lola (Go binary)
 
 - Rewrite Lola core in Go (~6K LOC, well-structured)
 - Port existing Git/Zip/Tar/marketplace functionality
-- Maintain CLI interface compatibility (Click → Cobra)
+- Maintain CLI compatibility (Click → Cobra)
 - Integrate skillimage library for OCI support
 
 **Key Complexity:** Primarily mechanical translation aided by AI. Testing behavioral equivalence is the main effort.
