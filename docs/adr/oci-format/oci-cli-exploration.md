@@ -70,14 +70,14 @@ The following design principles could guide CLI development for OCI support:
 
 ## Table of Contents
 
-1. [New Commands](#new-commands)
+1. [New Commands](#possible-new-commands)
    - [Module Metadata and SkillCard](#module-metadata-and-skillcard)
-2. [Modified Commands](#modified-commands)
+2. [Modified Commands](#possible-command-modifications)
    - [Workflow Pattern: Add Then Install](#workflow-pattern-add-then-install)
 3. [CLI Examples by Use Case](#cli-examples-by-use-case)
 4. [Error Handling](#error-handling)
-5. [Configuration](#configuration)
-6. [Possible Implementation Phasing](#possible-implementation-phasing)
+5. [Configuration](#configuration-optional)
+6. [Possible Implementation Phasing](#implementation-phasing)
 7. [Future Enhancements](#future-enhancements-not-for-initial-version)
 8. [Backward Compatibility](#backward-compatibility)
 
