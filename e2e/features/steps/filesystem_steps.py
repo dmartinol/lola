@@ -57,3 +57,10 @@ def step_module_installed(context, name, assistant):
         f"Failed to install {name} to {assistant}.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
     )
+
+
+@then('the file "{path}" should exist')
+def step_file_exists(context, path):
+    """Assert that a file exists at the resolved path."""
+    resolved = resolve_path(context, path)
+    assert Path(resolved).is_file(), f"Expected file to exist: {resolved}"
