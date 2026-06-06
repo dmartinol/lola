@@ -35,3 +35,10 @@ def step_dir_exists(context, path):
     """Assert that a directory exists at the resolved path."""
     resolved = resolve_path(context, path)
     assert Path(resolved).is_dir(), f"Expected directory to exist: {resolved}"
+
+
+@then('the directory "{path}" should not exist')
+def step_dir_not_exists(context, path):
+    """Assert that no directory exists at the resolved path."""
+    resolved = resolve_path(context, path)
+    assert not Path(resolved).is_dir(), f"Expected directory NOT to exist: {resolved}"
