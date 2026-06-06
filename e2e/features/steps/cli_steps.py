@@ -35,3 +35,17 @@ def step_output_contains(context, text):
         f"stdout: {context.last_result.stdout}\n"
         f"stderr: {context.last_result.stderr}"
     )
+
+
+@then("the output should match /{pattern}/")
+def step_output_matches(context, pattern):
+    """Assert that the combined output matches a regex pattern."""
+    import re
+
+    pattern = resolve_path(context, pattern)
+    combined = context.last_result.stdout + context.last_result.stderr
+    assert re.search(pattern, combined), (
+        f"Expected output to match /{pattern}/.\n"
+        f"stdout: {context.last_result.stdout}\n"
+        f"stderr: {context.last_result.stderr}"
+    )
