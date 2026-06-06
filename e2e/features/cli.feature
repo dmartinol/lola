@@ -34,3 +34,10 @@ Feature: Top-level CLI behavior
     And the output should contain "mod"
     And the output should contain "install"
     And the output should contain "market"
+
+  Scenario: Show subcommand help
+    When I run lola "mod --help"
+    Then the exit code should be 0
+    And the output should contain "add"
+    And the output should contain "ls"
+    And the output should contain "rm"
