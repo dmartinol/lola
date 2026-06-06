@@ -11,3 +11,8 @@ Feature: Module information
     And the output should contain "skill1"
     And the output should contain "cmd1"
     And the output should contain "agent1"
+
+  Scenario: Show info for a module that does not exist
+    When I run lola "mod info nonexistent"
+    Then the exit code should be 1
+    And the output should contain "not found"
