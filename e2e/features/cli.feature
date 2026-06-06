@@ -22,3 +22,8 @@ Feature: Top-level CLI behavior
       | flag   |
       | --help |
       | -h     |
+
+  Scenario: Show help when invoked without arguments
+    When I run lola with no arguments
+    Then the exit code should be 2
+    And the output should contain "AI Skills Package Manager"

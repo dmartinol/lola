@@ -49,3 +49,9 @@ def step_output_matches(context, pattern):
         f"stdout: {context.last_result.stdout}\n"
         f"stderr: {context.last_result.stderr}"
     )
+
+
+@when("I run lola with no arguments")
+def step_run_lola_no_args(context):
+    """Invoke lola as a subprocess with no arguments."""
+    context.last_result = context.cli.run()
