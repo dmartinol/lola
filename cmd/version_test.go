@@ -14,6 +14,7 @@ func TestResolveVersion(t *testing.T) {
 		{"go install",        "",       "v1.2.0",  "",           "v1.2.0"},
 		{"dev with commit",   "",       "(devel)", "a3f9b12abc", "0.0.0-dev+a3f9b12"},
 		{"dev short hash",    "",       "(devel)", "abc",        "0.0.0-dev+abc"},
+		{"dev exact 7 hash",  "",       "(devel)", "a3f9b12",    "0.0.0-dev+a3f9b12"},
 		{"dev no vcs",        "",       "(devel)", "",           "0.0.0-dev"},
 		{"no context at all", "",       "",        "",           "0.0.0-dev"},
 	}

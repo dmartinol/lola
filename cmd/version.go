@@ -60,7 +60,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print lola version and platform info",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("lola version %s %s/%s\n", currentVersion(), runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("lola version %s %s/%s\n", cmd.Root().Version, runtime.GOOS, runtime.GOARCH)
 	},
 }
 
