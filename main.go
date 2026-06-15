@@ -1,11 +1,16 @@
-/*
-Copyright © 2026 NAME HERE <EMAIL ADDRESS>
+// Copyright © 2026 LobsterTrap Contributors
+// SPDX-License-Identifier: Apache-2.0
 
-*/
 package main
 
-import "github.com/LobsterTrap/lola/cmd"
+import (
+	"os"
+
+	"github.com/LobsterTrap/lola/cmd"
+)
 
 func main() {
-	cmd.Execute()
+	if err := cmd.Execute(); err != nil {
+		os.Exit(1)
+	}
 }
