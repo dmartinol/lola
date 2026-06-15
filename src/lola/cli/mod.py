@@ -79,7 +79,7 @@ def list_registered_modules() -> list[Module]:
     return sorted(modules, key=lambda m: m.name)
 
 
-def _count_str(count: int, singular: str) -> str:
+def count_str(count: int, singular: str) -> str:
     """Format count with singular/plural form."""
     return f"{count} {singular}" if count == 1 else f"{count} {singular}s"
 
@@ -850,9 +850,9 @@ def list_modules(verbose: bool):
     for module in modules:
         console.print(f"[cyan]{module.name}[/cyan]")
 
-        skills_str = _count_str(len(module.skills), "skill")
-        cmds_str = _count_str(len(module.commands), "command")
-        agents_str = _count_str(len(module.agents), "agent")
+        skills_str = count_str(len(module.skills), "skill")
+        cmds_str = count_str(len(module.commands), "command")
+        agents_str = count_str(len(module.agents), "agent")
         console.print(f"  [dim]{skills_str}, {cmds_str}, {agents_str}[/dim]")
 
         if verbose:
@@ -1132,10 +1132,10 @@ def update_module_cmd(module_name: str | None):
 
         console.print()
         if updated > 0:
-            console.print(f"[green]Updated {_count_str(updated, 'module')}[/green]")
+            console.print(f"[green]Updated {count_str(updated, 'module')}[/green]")
         if failed > 0:
             console.print(
-                f"[yellow]Failed to update {_count_str(failed, 'module')}[/yellow]"
+                f"[yellow]Failed to update {count_str(failed, 'module')}[/yellow]"
             )
 
         if updated > 0:
@@ -1145,19 +1145,20 @@ def update_module_cmd(module_name: str | None):
 
 @mod.command(name="search")
 @click.argument("query")
-def mod_search(query: str):
+@click.pass_context
+def search_compat_cmd(ctx: click.Context, query: str):
     """
-    Search for modules across all enabled marketplaces.
+    Search the local module registry (compatibility alias).
 
-    QUERY: Search term to match against module name, description, tags
+    Deprecated: prefer 'lola search --mod'. This forwards to
+    'lola search <query> --mod' so existing scripts keep working.
 
-    \b
-    Example:
-        lola mod search git
+    QUERY: Search term to match
     """
-    from lola.config import MARKET_DIR, CACHE_DIR
-    from lola.market.manager import MarketplaceRegistry
+    from lola.cli.search import search_cmd
 
-    ensure_lola_dirs()
-    registry = MarketplaceRegistry(MARKET_DIR, CACHE_DIR)
-    registry.search(query)
+    # Warn on stderr so stdout stays clean for scripts parsing the results.
+    click.echo(
+        "'lola mod search' is deprecated; use 'lola search --mod' instead", err=True
+    )
+    ctx.invoke(search_cmd, query=query, mod=True, market=False)
