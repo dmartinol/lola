@@ -762,7 +762,7 @@ class Installation:
     agents: list[str] = field(default_factory=list)
     mcps: list[str] = field(default_factory=list)
     has_instructions: bool = False
-    append_context: Optional[str] = None
+    append_context: Optional[list[str]] = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for YAML serialization."""
@@ -786,7 +786,20 @@ class Installation:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Installation":
-        """Create from dictionary."""
+        """Create from dictionary.
+
+        Handles backward compatibility: old format had a single string,
+        new format is a list of strings.
+        """
+        raw = data.get("append_context")
+        if raw is None:
+            append_context: Optional[list[str]] = None
+        elif isinstance(raw, list):
+            append_context = raw
+        else:
+            # Old format: single string → wrap in list
+            append_context = [raw]
+
         return cls(
             module_name=data.get("module", ""),
             assistant=data.get("assistant", ""),
@@ -798,7 +811,7 @@ class Installation:
             agents=data.get("agents", []),
             mcps=data.get("mcps", []),
             has_instructions=data.get("has_instructions", False),
-            append_context=data.get("append_context"),
+            append_context=append_context,
         )
 
 
