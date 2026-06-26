@@ -21,7 +21,7 @@ from lola.exceptions import (
     ValidationError,
 )
 from lola.models import Installation, InstallationRegistry, Module
-from lola.market.manager import parse_market_ref, MarketplaceRegistry
+from lola.market.manager import parse_market_ref, parse_ref_suffix, MarketplaceRegistry
 from lola.parsers import fetch_module_as_name, detect_source_type
 from lola.cli.mod import (
     save_source_info,
@@ -71,7 +71,7 @@ def _resolve_install_path(
 
 
 def _fetch_from_marketplace(
-    marketplace_name: str, module_name: str
+    marketplace_name: str, module_name: str, ref_override: str | None = None
 ) -> tuple[Path, dict]:
     """
     Fetch module from specified marketplace.
@@ -79,6 +79,7 @@ def _fetch_from_marketplace(
     Args:
         marketplace_name: Name of the marketplace
         module_name: Name of the module
+        ref_override: Git ref to use instead of the marketplace-defined ref
 
     Returns:
         Tuple of (module_path, module_metadata) where module_metadata
@@ -127,15 +128,18 @@ def _fetch_from_marketplace(
         console.print(f"[red]Module '{module_name}' has no repository URL[/red]")
         raise SystemExit(1)
     content_dirname = module_dict.get("path")
+    ref = ref_override if ref_override is not None else module_dict.get("ref")
     console.print(f"[green]Found '{module_name}' in '{marketplace_name}'[/green]")
     console.print(f"[dim]Repository: {repository}[/dim]")
+    if ref:
+        console.print(f"[dim]Ref: {ref}[/dim]")
 
     try:
         source_type = detect_source_type(repository)
         module_path = fetch_module_as_name(
-            repository, MODULES_DIR, module_name, content_dirname
+            repository, MODULES_DIR, module_name, content_dirname, ref
         )
-        save_source_info(module_path, repository, source_type, content_dirname)
+        save_source_info(module_path, repository, source_type, content_dirname, ref)
         console.print(f"[green]Added {module_name}[/green]")
         return module_path, module_dict
     except Exception as e:
@@ -837,15 +841,22 @@ def install_cmd(
     marketplace_hooks = {}
     module_dict: dict[str, Any] = {}
 
-    # Override with marketplace if reference provided
+    # Parse optional @ref suffix from module name (e.g. "tools@v1.0.0")
+    ref_override: str | None = None
     marketplace_ref = parse_market_ref(module_name)
     if marketplace_ref:
+        # Handle @marketplace/module@ref — ref suffix may be on the module part
         marketplace_name, current_module_name = marketplace_ref
+        current_module_name, ref_override = parse_ref_suffix(current_module_name)
         module_path, module_dict = _fetch_from_marketplace(
-            marketplace_name, current_module_name
+            marketplace_name, current_module_name, ref_override
         )
         module_name = current_module_name
         marketplace_hooks = module_dict.get("hooks", {})
+    else:
+        # Handle bare "module@ref" syntax
+        module_name, ref_override = parse_ref_suffix(module_name)
+        module_path = MODULES_DIR / module_name
 
     # If module not found locally and no marketplace specified, search marketplaces
     if not module_path.exists() and not marketplace_ref:
@@ -860,7 +871,7 @@ def install_cmd(
                 console.print("[yellow]Cancelled[/yellow]")
                 raise SystemExit(130)
             module_path, module_dict = _fetch_from_marketplace(
-                selected_marketplace, module_name
+                selected_marketplace, module_name, ref_override
             )
             marketplace_hooks = module_dict.get("hooks", {})
 
@@ -870,6 +881,9 @@ def install_cmd(
         console.print("[dim]Use 'lola mod add <source>' to add a module[/dim]")
         console.print(
             "[dim]Or install from marketplace: lola install @marketplace/module[/dim]"
+        )
+        console.print(
+            "[dim]Pin a git ref: lola install module@v1.0.0 or @marketplace/module@v1.0.0[/dim]"
         )
         handle_lola_error(ModuleNotFoundError(module_name))
 

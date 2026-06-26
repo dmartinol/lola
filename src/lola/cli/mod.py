@@ -179,7 +179,15 @@ def _confirm_overwrite(source: str, module_name: str | None) -> bool:
     default=None,
     help="Custom content directory path. Use '/' for root. Default: auto-discover (module/ → root)",
 )
-def add_module(source: str, module_name: str, module_content_dirname: str):
+@click.option(
+    "--ref",
+    "git_ref",
+    default=None,
+    help="Git branch, tag, or commit SHA to fetch (git sources only)",
+)
+def add_module(
+    source: str, module_name: str, module_content_dirname: str, git_ref: str
+):
     """
     Add a module to the lola registry.
 
@@ -195,6 +203,7 @@ def add_module(source: str, module_name: str, module_content_dirname: str):
     \b
     Examples:
         lola mod add https://github.com/user/my-skills.git
+        lola mod add https://github.com/user/my-skills.git --ref v1.0.0
         lola mod add https://github.com/user/repo/archive/main.zip
         lola mod add https://example.com/skills.tar.gz
         lola mod add ./my-local-module
@@ -213,9 +222,11 @@ def add_module(source: str, module_name: str, module_content_dirname: str):
         return
 
     try:
-        module_path = fetch_module(source, MODULES_DIR, module_content_dirname)
+        module_path = fetch_module(source, MODULES_DIR, module_content_dirname, git_ref)
         # Save source info for future updates
-        save_source_info(module_path, source, source_type, module_content_dirname)
+        save_source_info(
+            module_path, source, source_type, module_content_dirname, git_ref
+        )
     except LolaError as e:
         handle_lola_error(e)
     except Exception as e:

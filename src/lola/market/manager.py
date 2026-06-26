@@ -32,6 +32,14 @@ def parse_market_ref(module_name: str) -> tuple[str, str] | None:
     return None
 
 
+def parse_ref_suffix(name: str) -> tuple[str, str | None]:
+    """Split 'module@ref' into ('module', 'ref'), or ('module', None) if no @."""
+    if "@" in name:
+        module, ref = name.rsplit("@", 1)
+        return module, ref or None
+    return name, None
+
+
 def validate_marketplace_name(name: str) -> str:
     """Validate marketplace name to ensure it's a valid filesystem name.
 
@@ -65,7 +73,7 @@ class MarketplaceRegistry:
         self.market_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def add(self, name: str, url: str) -> None:
+    def add(self, name: str, url: str, ref: str | None = None) -> None:
         """Add a new marketplace."""
         try:
             name = validate_marketplace_name(name)
@@ -80,7 +88,7 @@ class MarketplaceRegistry:
             return
 
         try:
-            marketplace = Marketplace.from_url(url, name)
+            marketplace = Marketplace.from_url(url, name, ref)
             is_valid, errors = marketplace.validate()
 
             if not is_valid:
@@ -348,7 +356,9 @@ class MarketplaceRegistry:
         marketplace_ref = Marketplace.from_reference(ref_file)
 
         try:
-            marketplace = Marketplace.from_url(marketplace_ref.url, name)
+            marketplace = Marketplace.from_url(
+                marketplace_ref.url, name, marketplace_ref.ref
+            )
             is_valid, errors = marketplace.validate()
 
             if not is_valid:

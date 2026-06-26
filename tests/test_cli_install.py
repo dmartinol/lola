@@ -10,7 +10,7 @@ from lola.cli.install import (
     update_cmd,
     list_installed_cmd,
 )
-from lola.market.manager import parse_market_ref
+from lola.market.manager import parse_market_ref, parse_ref_suffix
 from lola.models import Installation, InstallationRegistry
 
 
@@ -201,6 +201,153 @@ class TestMarketplaceReference:
         assert module_path.exists()
         assert (modules_dir / "claude-md-management").exists()
         assert not (modules_dir / "anthropics-claude-plugins-official").exists()
+
+    def test_fetch_from_marketplace_passes_ref_from_module_dict(self, tmp_path):
+        """ref field in marketplace YAML is passed to fetch_module_as_name."""
+        modules_dir = tmp_path / ".lola" / "modules"
+        modules_dir.mkdir(parents=True)
+        market_dir = tmp_path / ".lola" / "market"
+        cache_dir = tmp_path / ".lola" / "market" / "cache"
+        market_dir.mkdir(parents=True)
+        cache_dir.mkdir(parents=True)
+
+        source_repo = tmp_path / "my-skills"
+        source_repo.mkdir()
+
+        (market_dir / "demo.yml").write_text(
+            "name: demo\nurl: file:///tmp/demo.yml\nenabled: true\n"
+        )
+        (cache_dir / "demo.yml").write_text(
+            "name: demo\nurl: file:///tmp/demo.yml\nenabled: true\n"
+            "modules:\n"
+            "  - name: pinned-module\n"
+            "    description: Pinned\n"
+            "    version: 1.0.0\n"
+            f"    repository: {source_repo.as_posix()}\n"
+            "    ref: v1.2.0\n"
+        )
+
+        from unittest.mock import patch
+
+        with (
+            patch("lola.cli.install.MODULES_DIR", modules_dir),
+            patch("lola.cli.install.MARKET_DIR", market_dir),
+            patch("lola.cli.install.CACHE_DIR", cache_dir),
+            patch("lola.cli.install.save_source_info") as mock_save,
+            patch(
+                "lola.cli.install.fetch_module_as_name",
+                return_value=modules_dir / "pinned-module",
+            ) as mock_fetch,
+        ):
+            (modules_dir / "pinned-module").mkdir()
+            _fetch_from_marketplace("demo", "pinned-module")
+
+        mock_fetch.assert_called_once()
+        _, _, _, _, ref_arg = mock_fetch.call_args[0]
+        assert ref_arg == "v1.2.0"
+        mock_save.assert_called_once()
+        assert mock_save.call_args[0][4] == "v1.2.0"
+
+    def test_fetch_from_marketplace_ref_override_wins(self, tmp_path):
+        """ref_override takes precedence over the marketplace YAML ref."""
+        modules_dir = tmp_path / ".lola" / "modules"
+        modules_dir.mkdir(parents=True)
+        market_dir = tmp_path / ".lola" / "market"
+        cache_dir = tmp_path / ".lola" / "market" / "cache"
+        market_dir.mkdir(parents=True)
+        cache_dir.mkdir(parents=True)
+
+        source_repo = tmp_path / "my-skills"
+        source_repo.mkdir()
+
+        (market_dir / "demo.yml").write_text(
+            "name: demo\nurl: file:///tmp/demo.yml\nenabled: true\n"
+        )
+        (cache_dir / "demo.yml").write_text(
+            "name: demo\nurl: file:///tmp/demo.yml\nenabled: true\n"
+            "modules:\n"
+            "  - name: pinned-module\n"
+            "    description: Pinned\n"
+            "    version: 1.0.0\n"
+            f"    repository: {source_repo.as_posix()}\n"
+            "    ref: v1.0.0\n"
+        )
+
+        from unittest.mock import patch
+
+        with (
+            patch("lola.cli.install.MODULES_DIR", modules_dir),
+            patch("lola.cli.install.MARKET_DIR", market_dir),
+            patch("lola.cli.install.CACHE_DIR", cache_dir),
+            patch("lola.cli.install.save_source_info") as mock_save,
+            patch(
+                "lola.cli.install.fetch_module_as_name",
+                return_value=modules_dir / "pinned-module",
+            ) as mock_fetch,
+        ):
+            (modules_dir / "pinned-module").mkdir()
+            _fetch_from_marketplace("demo", "pinned-module", ref_override="develop")
+
+        _, _, _, _, ref_arg = mock_fetch.call_args[0]
+        assert ref_arg == "develop"
+        assert mock_save.call_args[0][4] == "develop"
+
+    def test_fetch_from_marketplace_no_ref(self, tmp_path):
+        """Module dict without ref field passes ref=None (backward compat)."""
+        modules_dir = tmp_path / ".lola" / "modules"
+        modules_dir.mkdir(parents=True)
+        market_dir = tmp_path / ".lola" / "market"
+        cache_dir = tmp_path / ".lola" / "market" / "cache"
+        market_dir.mkdir(parents=True)
+        cache_dir.mkdir(parents=True)
+
+        source_repo = tmp_path / "my-skills"
+        source_repo.mkdir()
+
+        (market_dir / "demo.yml").write_text(
+            "name: demo\nurl: file:///tmp/demo.yml\nenabled: true\n"
+        )
+        (cache_dir / "demo.yml").write_text(
+            "name: demo\nurl: file:///tmp/demo.yml\nenabled: true\n"
+            "modules:\n"
+            "  - name: unpinned\n"
+            "    description: No ref\n"
+            "    version: 1.0.0\n"
+            f"    repository: {source_repo.as_posix()}\n"
+        )
+
+        from unittest.mock import patch
+
+        with (
+            patch("lola.cli.install.MODULES_DIR", modules_dir),
+            patch("lola.cli.install.MARKET_DIR", market_dir),
+            patch("lola.cli.install.CACHE_DIR", cache_dir),
+            patch("lola.cli.install.save_source_info") as mock_save,
+            patch(
+                "lola.cli.install.fetch_module_as_name",
+                return_value=modules_dir / "unpinned",
+            ) as mock_fetch,
+        ):
+            (modules_dir / "unpinned").mkdir()
+            _fetch_from_marketplace("demo", "unpinned")
+
+        _, _, _, _, ref_arg = mock_fetch.call_args[0]
+        assert ref_arg is None
+        assert mock_save.call_args[0][4] is None
+
+    def test_parse_ref_suffix_used_in_module_at_ref_install(self):
+        """parse_ref_suffix splits 'module@ref' correctly for lola install."""
+        name, ref = parse_ref_suffix("tools@v1.0.0")
+        assert name == "tools"
+        assert ref == "v1.0.0"
+
+    def test_parse_ref_suffix_marketplace_module_at_ref(self):
+        """parse_ref_suffix handles module part after parse_market_ref."""
+        # Simulates @marketplace/module@ref → parse_market_ref → ("mkt", "module@ref")
+        # then parse_ref_suffix on the module part
+        name, ref = parse_ref_suffix("my-module@develop")
+        assert name == "my-module"
+        assert ref == "develop"
 
     def test_marketplace_install_lists_catalog_name_and_registry_record(
         self, cli_runner, tmp_path

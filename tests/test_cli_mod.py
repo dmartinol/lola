@@ -115,6 +115,51 @@ class TestModAdd:
         assert "-a <assistant>" in result.output
         assert "-s <scope>" in result.output
 
+    def test_add_ref_passed_to_fetch_and_save(
+        self, cli_runner, sample_module, tmp_path
+    ):
+        """--ref flag is forwarded to fetch_module and save_source_info."""
+        modules_dir = tmp_path / ".lola" / "modules"
+        modules_dir.mkdir(parents=True)
+
+        with (
+            patch("lola.cli.mod.MODULES_DIR", modules_dir),
+            patch("lola.cli.mod.ensure_lola_dirs"),
+            patch(
+                "lola.cli.mod.fetch_module", return_value=modules_dir / "sample-module"
+            ) as mock_fetch,
+            patch("lola.cli.mod.save_source_info") as mock_save,
+        ):
+            (modules_dir / "sample-module").mkdir()
+            result = cli_runner.invoke(
+                mod, ["add", "https://github.com/user/repo.git", "--ref", "v1.0.0"]
+            )
+
+        assert result.exit_code == 0
+        # ref must be passed as 4th positional arg to fetch_module
+        assert mock_fetch.call_args[0][3] == "v1.0.0"
+        # ref must be passed as 5th positional arg to save_source_info
+        assert mock_save.call_args[0][4] == "v1.0.0"
+
+    def test_add_without_ref_passes_none(self, cli_runner, sample_module, tmp_path):
+        """Without --ref, git_ref=None is passed (backward compat)."""
+        modules_dir = tmp_path / ".lola" / "modules"
+        modules_dir.mkdir(parents=True)
+
+        with (
+            patch("lola.cli.mod.MODULES_DIR", modules_dir),
+            patch("lola.cli.mod.ensure_lola_dirs"),
+            patch(
+                "lola.cli.mod.fetch_module", return_value=modules_dir / "sample-module"
+            ) as mock_fetch,
+            patch("lola.cli.mod.save_source_info"),
+        ):
+            (modules_dir / "sample-module").mkdir()
+            result = cli_runner.invoke(mod, ["add", "https://github.com/user/repo.git"])
+
+        assert result.exit_code == 0
+        assert mock_fetch.call_args[0][3] is None
+
 
 class TestModList:
     """Tests for mod ls command."""
